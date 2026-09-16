@@ -1,0 +1,22 @@
+# Lab 2 dependencies
+#
+# Install with:  pip install -r requirements.txt
+#
+# PyTorch is intentionally unpinned: on Google Colab a CUDA-enabled build is
+# preinstalled, and `pip install torch` there would either be a no-op or replace the
+# GPU wheel with a CPU one. Install/upgrade torch manually only if your environment
+# has no PyTorch at all (see README "Installation").
+torch>=2.0
+torchvision>=0.15
+tensorboard>=2.13
+
+# timm is required ONLY for MobileNetV4: neither torchvision 0.26 nor any released
+# torchvision provides a MobileNetV4 implementation, so the official timm
+# (PyTorch Image Models, HuggingFace) implementation of MobileNetV4 Conv Small is used.
+# VGG16 / ResNet18 / DenseNet121 come from torchvision and do not need timm.
+timm>=1.0.0
+
+# Used by benchmark.py to pretty-print results/model_comparison.csv as a table.
+# Optional: without pandas the script falls back to a plain-text table and the CSV is
+# still written (the CSV itself is produced with the standard library `csv` module).
+pandas>=1.5

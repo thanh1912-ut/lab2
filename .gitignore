@@ -1,0 +1,17 @@
+# Byte-compiled files
+__pycache__/
+*.py[cod]
+
+# Datasets, checkpoints and run outputs (reproducible from the scripts)
+data/
+checkpoints/
+results/
+runs/
+.cache/
+
+# Environments / editors
+.venv/
+venv/
+.idea/
+.vscode/
+.DS_Store
