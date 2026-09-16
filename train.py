@@ -77,6 +77,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         help="CIFAR-10 directory (downloaded automatically if missing).")
     parser.add_argument("--val-split", type=int, default=DEFAULT_VAL_SPLIT,
                         help="Number of CIFAR-10 train images held out for validation.")
+    parser.add_argument("--no-download", dest="download", action="store_false", default=True,
+                        help="Never download CIFAR-10; fail if it is not already in --data-dir.")
 
     # Optimisation (mandatory benchmark values are the defaults)
     parser.add_argument("--epochs", type=int, default=DEFAULT_EPOCHS, help="Number of epochs.")
@@ -160,6 +162,7 @@ def config_from_args(args: argparse.Namespace) -> TrainConfig:
         val_split=args.val_split,
         seed=args.seed,
         pretrained=True,  # this lab never trains from scratch
+        download=args.download,
         freeze_backbone=args.freeze_backbone,
         amp=args.amp,
         device=args.device,
@@ -190,19 +193,30 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     paths = resolve_paths(cfg, create=True)
 
-    # Data
-    loaders, datasets = build_dataloaders(
-        data_dir=cfg.data_dir,
-        batch_size=cfg.batch_size,
-        val_split=cfg.val_split,
-        seed=cfg.seed,
-        num_workers=cfg.num_workers,
-    )
+    # Data (CIFAR-10 is downloaded automatically when missing, unless --no-download)
+    try:
+        loaders, datasets = build_dataloaders(
+            data_dir=cfg.data_dir,
+            batch_size=cfg.batch_size,
+            val_split=cfg.val_split,
+            seed=cfg.seed,
+            num_workers=cfg.num_workers,
+            download=cfg.download,
+        )
+    except (FileNotFoundError, RuntimeError, OSError) as exc:
+        print(f"[train] ERROR while preparing CIFAR-10 in '{cfg.data_dir}':\n{exc}", file=sys.stderr)
+        return 1
+
     print(describe_dataset(*datasets))
     print("-" * 78, flush=True)
 
-    # Model
-    model = create_model(cfg.model_name, num_classes=10, pretrained=cfg.pretrained)
+    # Model (ImageNet-1K pretrained weights, 10-class head)
+    try:
+        model = create_model(cfg.model_name, num_classes=10, pretrained=cfg.pretrained)
+    except (RuntimeError, ValueError, ImportError, KeyError) as exc:
+        print(f"[train] ERROR while creating model '{cfg.model_name}':\n{exc}", file=sys.stderr)
+        return 1
+
     if cfg.freeze_backbone:
         freeze_backbone(model)
     else:

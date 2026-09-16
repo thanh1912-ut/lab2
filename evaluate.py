@@ -69,6 +69,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--num-workers", type=int, default=DEFAULT_NUM_WORKERS, help="DataLoader workers.")
     parser.add_argument("--seed", type=int, default=42, help="Seed for the val split (must match training).")
     parser.add_argument("--val-split", type=int, default=5_000, help="Validation size used during training.")
+    parser.add_argument("--no-download", dest="download", action="store_false", default=True,
+                        help="Never download CIFAR-10; fail if it is not already in --data-dir.")
     parser.add_argument("--device", type=str, default="auto", choices=["auto", "cuda", "mps", "cpu"],
                         help="Compute device.")
     parser.add_argument("--amp", dest="amp", action="store_true", default=True, help="Mixed precision (CUDA).")
@@ -126,16 +128,26 @@ def main(argv: Optional[List[str]] = None) -> int:
         f"train_acc {float(checkpoint.get('train_accuracy', float('nan'))):.2f}%"
     )
 
-    loaders, datasets = build_dataloaders(
-        data_dir=args.data_dir,
-        batch_size=args.batch_size,
-        val_split=args.val_split,
-        seed=args.seed,
-        num_workers=args.num_workers,
-    )
+    try:
+        loaders, datasets = build_dataloaders(
+            data_dir=args.data_dir,
+            batch_size=args.batch_size,
+            val_split=args.val_split,
+            seed=args.seed,
+            num_workers=args.num_workers,
+            download=args.download,
+        )
+    except (FileNotFoundError, RuntimeError, OSError) as exc:
+        print(f"[evaluate] ERROR while preparing CIFAR-10 in '{args.data_dir}':\n{exc}", file=sys.stderr)
+        return 1
     loader = loaders[args.split]
 
-    model, _ = load_finetuned_model(checkpoint_path, device=device, num_classes=10)
+    try:
+        model, _ = load_finetuned_model(checkpoint_path, device=device, num_classes=10)
+    except (RuntimeError, ValueError, KeyError, ImportError) as exc:
+        print(f"[evaluate] ERROR while rebuilding '{model_name}' from the checkpoint:\n{exc}", file=sys.stderr)
+        return 1
+
     criterion = nn.CrossEntropyLoss()
 
     if args.split == "test":

@@ -14,6 +14,8 @@ of how much randomness was consumed before.
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import torch
@@ -38,6 +40,9 @@ __all__ = [
     "load_cifar10_datasets",
     "build_dataloaders",
     "describe_dataset",
+    "ensure_cifar10",
+    "cifar10_is_available",
+    "CIFAR10_MIRROR_ENV_VAR",
 ]
 
 
@@ -85,6 +90,95 @@ def build_transforms(
 
 
 # --------------------------------------------------------------------------------------
+# Download handling
+# --------------------------------------------------------------------------------------
+# torchvision downloads CIFAR-10 from a single official URL (cs.toronto.edu) and verifies
+# the archive md5 (``CIFAR10.tgz_md5``) before extracting it, so a truncated or tampered
+# download fails loudly instead of silently corrupting a run. In some networks that host is
+# slow, therefore:
+#   * a custom mirror can be supplied through the LAB2_CIFAR10_MIRROR environment variable
+#     (same file name + same md5 is enforced), and
+#   * failures raise an actionable error instead of a bare traceback.
+CIFAR10_ARCHIVE: str = "cifar-10-python.tar.gz"
+CIFAR10_FOLDER: str = "cifar-10-batches-py"
+CIFAR10_MIRROR_ENV_VAR: str = "LAB2_CIFAR10_MIRROR"
+CIFAR10_OFFICIAL_URL: str = "https://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz"
+
+
+def cifar10_is_available(data_dir: str = "./data") -> bool:
+    """True when the CIFAR-10 python batches are already extracted in ``data_dir``."""
+    folder = Path(data_dir) / CIFAR10_FOLDER
+    return (folder / "data_batch_1").is_file() and (folder / "test_batch").is_file()
+
+
+def ensure_cifar10(data_dir: str = "./data", download: bool = True) -> None:
+    """Make sure CIFAR-10 is extracted in ``data_dir``, downloading it if needed.
+
+    Mirrors ``torchvision.datasets.CIFAR10(download=...)`` but with an explicit, actionable
+    failure message and optional mirror support (``LAB2_CIFAR10_MIRROR``). Whichever URL is
+    used, the archive must match torchvision's published md5 (``CIFAR10.tgz_md5``) before it
+    is extracted, so a mirror can never silently corrupt the dataset.
+    """
+    data_dir = str(data_dir)
+    ensure_dir(data_dir)
+
+    if cifar10_is_available(data_dir):
+        return
+
+    if not download:
+        raise FileNotFoundError(
+            f"CIFAR-10 is not present in '{data_dir}' and downloading is disabled (--no-download).\n"
+            f"Either drop the extracted '{CIFAR10_FOLDER}/' folder (or the "
+            f"'{CIFAR10_ARCHIVE}' archive) into '{data_dir}', or run without --no-download."
+        )
+
+    from torchvision.datasets.utils import download_and_extract_archive  # local import
+
+    mirror = os.environ.get(CIFAR10_MIRROR_ENV_VAR, "").strip()
+    # When a mirror is configured explicitly it is the only candidate: falling back to the
+    # official host would silently ignore the user's choice and can hang a session for a long
+    # time on a slow link. Unset the variable to use the official URL again.
+    candidates = [mirror] if mirror else [CIFAR10_OFFICIAL_URL]
+
+    errors: List[str] = []
+    for url in candidates:
+        try:
+            download_and_extract_archive(
+                url,
+                download_root=data_dir,
+                filename=CIFAR10_ARCHIVE,
+                md5=CIFAR10.tgz_md5,  # enforced verification, whatever the source
+            )
+        except Exception as exc:  # noqa: BLE001 - collected and reported below
+            errors.append(f"  - {url} -> {type(exc).__name__}: {exc}")
+            continue
+
+        if cifar10_is_available(data_dir):
+            if url != CIFAR10_OFFICIAL_URL:
+                print(f"[dataset] CIFAR-10 downloaded from mirror: {url}")
+            return
+        errors.append(f"  - {url} -> archive extracted but '{CIFAR10_FOLDER}' is incomplete")
+
+    raise RuntimeError(
+        "Failed to download CIFAR-10 into "
+        f"'{data_dir}'. Attempts:\n" + "\n".join(errors) + "\n"
+        "Options:\n"
+        "  1. retry - transient network errors are common (the official host can be slow)\n"
+        "  2. download it once into a persistent folder and reuse it, e.g. on Colab:\n"
+        "       --data-dir /content/drive/MyDrive/lab2/data\n"
+        "  3. fetch the archive manually, then let torchvision verify and extract it:\n"
+        f"       mkdir -p {data_dir} && wget -O {data_dir}/{CIFAR10_ARCHIVE} {CIFAR10_OFFICIAL_URL}\n"
+        f"     (md5 must be {CIFAR10.tgz_md5})\n"
+        "  4. use your own mirror (any host serving the same file name):\n"
+        f"       export {CIFAR10_MIRROR_ENV_VAR}=https://your-mirror/{CIFAR10_ARCHIVE}\n"
+        f"       (currently {'set to ' + repr(mirror) if mirror else 'unset -> official URL'}; "
+        f"unset it with `unset {CIFAR10_MIRROR_ENV_VAR}` to use the official URL)\n"
+        f"  5. delete a possibly corrupted archive and retry: rm -f "
+        f"'{Path(data_dir) / CIFAR10_ARCHIVE}'"
+    )
+
+
+# --------------------------------------------------------------------------------------
 # Datasets / split
 # --------------------------------------------------------------------------------------
 def load_cifar10_datasets(
@@ -103,7 +197,7 @@ def load_cifar10_datasets(
         seed: seed of the deterministic split.
         image_size: network input resolution (224).
         resize_size: resize size used by the evaluation transform (256).
-        download: download CIFAR-10 when it is not present yet.
+        download: download CIFAR-10 when it is not present yet (see :func:`ensure_cifar10`).
 
     Returns:
         ``train_dataset`` (augmented, 45,000), ``val_dataset`` (deterministic, 5,000),
@@ -113,13 +207,14 @@ def load_cifar10_datasets(
         raise ValueError(f"val_split must be in (0, 50000), got {val_split}.")
 
     ensure_dir(data_dir)
+    ensure_cifar10(data_dir, download=download)
     train_transform, eval_transform = build_transforms(image_size=image_size, resize_size=resize_size)
 
     # Two views of the same training images: the augmented one for training and the
     # deterministic one for validation (so validation is comparable to the test set).
-    train_base = CIFAR10(root=data_dir, train=True, download=download, transform=train_transform)
-    val_base = CIFAR10(root=data_dir, train=True, download=download, transform=eval_transform)
-    test_dataset = CIFAR10(root=data_dir, train=False, download=download, transform=eval_transform)
+    train_base = CIFAR10(root=data_dir, train=True, download=False, transform=train_transform)
+    val_base = CIFAR10(root=data_dir, train=True, download=False, transform=eval_transform)
+    test_dataset = CIFAR10(root=data_dir, train=False, download=False, transform=eval_transform)
 
     generator = torch.Generator().manual_seed(seed)  # reproducible split, independent of global RNG
     indices = torch.randperm(len(train_base), generator=generator).tolist()

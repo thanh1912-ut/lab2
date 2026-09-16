@@ -111,6 +111,7 @@ class TrainConfig:
     seed: int = DEFAULT_SEED
 
     pretrained: bool = True          # ImageNet-1K weights, never train from scratch
+    download: bool = True             # auto-download CIFAR-10 when it is missing
     freeze_backbone: bool = False    # full fine-tuning by default
     amp: bool = True                 # auto-disabled on CPU/MPS
     device: str = "auto"             # auto | cuda | mps | cpu

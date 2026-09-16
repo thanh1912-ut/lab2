@@ -124,6 +124,39 @@ pip install torch torchvision
 (`benchmark.py --pandas-table`, used only to pretty-print the comparison table; the CSV is
 always written with the standard library).
 
+## Dataset and weight downloads
+
+**Nothing has to be uploaded: the library fetches everything on first use.**
+
+| What | How it is fetched | Where it lands | Size |
+|------|-------------------|----------------|------|
+| CIFAR-10 | `torchvision.datasets.CIFAR10(download=True)` inside `dataset.py` (md5-verified archive, auto-extracted) | `--data-dir` (`./data`) | ~170 MB |
+| VGG16 / ResNet18 / DenseNet121 weights | `torchvision` weights API (`download.pytorch.org`) | `$TORCH_HOME` (`~/.cache/torch`) | 528 / 45 / 31 MB |
+| MobileNetV4 weights | `timm` → HuggingFace Hub (public, no token needed) | `$HF_HOME` (`~/.cache/huggingface`) | ~7 MB |
+
+So on Google Colab the whole flow is: copy/clone the repo → `pip install -r requirements.txt`
+→ `python train.py --model ...` and both the dataset and the ImageNet-1K weights download
+themselves.
+
+Useful knobs:
+
+```bash
+# keep the dataset (and caches) across Colab sessions instead of re-downloading
+python train.py --model resnet18 --data-dir /content/drive/MyDrive/lab2/data
+
+# offline / no-network runs: fail instead of downloading
+python train.py --model resnet18 --no-download
+
+# the official CIFAR-10 host (cs.toronto.edu) can be slow on some networks - use a mirror
+# serving the same file name; the md5 is always verified before extraction
+export LAB2_CIFAR10_MIRROR=https://your-mirror/cifar-10-python.tar.gz
+```
+
+If a download fails, the script stops with an actionable message (listing every URL it tried,
+plus the manual `wget` command and the md5 to check) instead of a bare traceback — a
+corrupted or truncated archive can never be used silently, and a mirror whose file does not
+match the official md5 is rejected.
+
 ## Training
 
 All four commands use the mandatory recipe (ImageNet-1K pretrained, full fine-tuning,

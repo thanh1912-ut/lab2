@@ -103,6 +103,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         help="Output CSV (default: <results-dir>/model_comparison.csv).")
     parser.add_argument("--num-workers", type=int, default=DEFAULT_NUM_WORKERS, help="DataLoader workers.")
     parser.add_argument("--val-split", type=int, default=DEFAULT_VAL_SPLIT, help="Validation size (5,000).")
+    parser.add_argument("--no-download", dest="download", action="store_false", default=True,
+                        help="Never download CIFAR-10; fail if it is not already in --data-dir.")
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED, help="Seed (identical for every model).")
     parser.add_argument("--device", type=str, default="auto", choices=["auto", "cuda", "mps", "cpu"],
                         help="Compute device.")
@@ -137,6 +139,7 @@ def make_config(args: argparse.Namespace, model_name: str) -> TrainConfig:
         val_split=args.val_split,
         seed=args.seed,
         pretrained=True,
+        download=args.download,
         freeze_backbone=args.freeze_backbone,
         amp=args.amp,
         device=args.device,
@@ -161,6 +164,7 @@ def benchmark_one_model(
         val_split=cfg.val_split,
         seed=cfg.seed,
         num_workers=cfg.num_workers,
+        download=cfg.download,
     )
     if print_dataset_info:
         print(describe_dataset(*datasets))
