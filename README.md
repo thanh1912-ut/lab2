@@ -75,6 +75,7 @@ lab2/
 ├── inspect_model.py    # CLI: print architecture, params, classifier, dummy-forward shape
 ├── smoke_test.py       # sanity checks: builds all 4 backbones, checks (2,3,224,224) -> (2,10)
 ├── colab_setup.py      # Colab helper: persist the whole project (data/results/code) to Drive
+├── collect_results.py  # build results/model_comparison.csv from existing per-model results
 │
 ├── models.py           # create_model(), head replacement, freeze/unfreeze, model registry
 ├── dataset.py          # CIFAR-10, transforms, reproducible 45k/5k split, DataLoaders
@@ -109,6 +110,7 @@ stored permanently - see "Save the whole project to Google Drive".
 | `benchmark.py` | argparse CLI: loops over the 4 backbones with one identical `TrainConfig`, writes `results/model_comparison.csv`. |
 | `inspect_model.py` | argparse CLI: full architecture, parameter counts, classifier, dummy-input output shape. |
 | `smoke_test.py` | argparse CLI: environment/weights-API report + 4-model dummy-forward verification. |
+| `collect_results.py` | Rebuilds `results/model_comparison.csv` from the `results/<model>_test.json` (and `*_history.csv`) files already on disk - useful when the four backbones were trained with four separate `train.py` runs instead of `benchmark.py`. No re-training. |
 | `colab_setup.py` | Colab helper: symlinks `data/`, `checkpoints/`, `results/`, `runs/` into Google Drive and snapshots the source code there, so nothing is lost when a session is recycled. Idempotent; also supports `--dry-run` and non-Colab testing. |
 
 ## Installation
@@ -475,6 +477,14 @@ This trains the four backbones sequentially with an identical recipe (same seed 
 split, same transforms, same optimizer/LR/batch size/epochs) and writes
 `results/model_comparison.csv`, plus `results/<model>_history.csv`,
 `results/<model>_test.json` and `runs/<model>/` for each model.
+
+If you trained the models one by one with `train.py` instead of running `benchmark.py`,
+build the summary table from the results you already have (no re-training):
+
+```bash
+!python collect_results.py                 # -> results/model_comparison.csv
+!python collect_results.py --pandas-table  # nicer console table
+```
 
 To submit the lab you normally only need: `results/model_comparison.csv`, the four
 `results/<model>_history.csv`, the four `results/<model>_test.json`, and the TensorBoard
