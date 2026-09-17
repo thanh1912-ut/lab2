@@ -74,6 +74,7 @@ lab2/
 ├── benchmark.py        # CLI: train + compare all 4 backbones, writes model_comparison.csv
 ├── inspect_model.py    # CLI: print architecture, params, classifier, dummy-forward shape
 ├── smoke_test.py       # sanity checks: builds all 4 backbones, checks (2,3,224,224) -> (2,10)
+├── colab_setup.py      # Colab helper: persist the whole project (data/results/code) to Drive
 │
 ├── models.py           # create_model(), head replacement, freeze/unfreeze, model registry
 ├── dataset.py          # CIFAR-10, transforms, reproducible 45k/5k split, DataLoaders
@@ -90,6 +91,10 @@ lab2/
 └── runs/               # TensorBoard event files: runs/<model>/
 ```
 
+On Colab, `data/`, `checkpoints/`, `results/` and `runs/` can be symlinks into Google Drive
+(created by `colab_setup.py`) so that the same relative paths keep working while everything is
+stored permanently - see "Save the whole project to Google Drive".
+
 ### Module responsibilities
 
 | File | Responsibility |
@@ -104,6 +109,7 @@ lab2/
 | `benchmark.py` | argparse CLI: loops over the 4 backbones with one identical `TrainConfig`, writes `results/model_comparison.csv`. |
 | `inspect_model.py` | argparse CLI: full architecture, parameter counts, classifier, dummy-input output shape. |
 | `smoke_test.py` | argparse CLI: environment/weights-API report + 4-model dummy-forward verification. |
+| `colab_setup.py` | Colab helper: symlinks `data/`, `checkpoints/`, `results/`, `runs/` into Google Drive and snapshots the source code there, so nothing is lost when a session is recycled. Idempotent; also supports `--dry-run` and non-Colab testing. |
 
 ## Installation
 
@@ -371,8 +377,8 @@ is present (AMP is auto-disabled on CPU).
 from google.colab import drive; drive.mount('/content/drive')
 %cd /content/drive/MyDrive/lab2
 
-# option C: from git
-!git clone <your-repo-url> /content/lab2 && cd /content/lab2
+# option C: from git (recommended)
+!git clone https://github.com/thanh1912-ut/lab2.git /content/lab2 && cd /content/lab2
 ```
 
 ### Step 2 — install the dependencies
@@ -383,6 +389,33 @@ from google.colab import drive; drive.mount('/content/drive')
 
 `torch`/`torchvision` are already CUDA-enabled on Colab, so `requirements.txt` leaves them
 unpinned. `timm` is installed only for MobileNetV4.
+
+### Step 2b (recommended) — keep everything on Google Drive
+
+A Colab session is wiped when it recycles, which would lose the dataset, the checkpoints and
+the TensorBoard runs. Mount Drive once and let `colab_setup.py` put them there:
+
+```
+# cell 1 - mounting must run in a notebook cell (it needs the auth prompt)
+from google.colab import drive
+drive.mount('/content/drive')
+```
+
+```bash
+# cell 2
+%cd /content/lab2
+!python colab_setup.py
+```
+
+It creates `/content/drive/MyDrive/lab2/{data,checkpoints,results,runs,code}` and symlinks the
+project's four output folders to them, so **every command below stays exactly the same** while
+all artefacts are written to Drive. Existing local files are moved, never deleted, and the
+script is idempotent (re-run it any time). Options: `--drive-root`, `--no-data`,
+`--no-code`, `--copy-git`, `--dry-run`.
+
+Next session: mount Drive, `!git clone` (or restore `.../lab2/code`) and re-run
+`colab_setup.py` — the dataset and all previous results are already on Drive. See
+"Save the whole project to Google Drive" below for the manual/flag-based alternatives.
 
 ### Step 3 — verify the environment (30 seconds, do this first)
 
@@ -463,6 +496,76 @@ screenshots (or the `runs/` folder).
 * On Colab, TensorBoard imports normally, so logging works out of the box. If a machine's
   environment breaks that import chain, training still runs and only the `runs/` event files
   are skipped — see the TensorBoard section above.
+
+## Save the whole project to Google Drive
+
+Three ways, from most automatic to most manual. All of them keep the commands you type
+identical, because the project only ever uses relative paths.
+
+### A. `colab_setup.py` (recommended)
+
+```
+from google.colab import drive
+drive.mount('/content/drive')
+```
+```bash
+%cd /content/lab2
+!python colab_setup.py
+```
+
+Result:
+
+```
+/content/drive/MyDrive/lab2/
+├── data/          # CIFAR-10 (downloaded once, reused every session)
+├── checkpoints/   # <model>_best.pt
+├── results/       # <model>_history.csv, <model>_test.json, model_comparison.csv
+├── runs/          # TensorBoard event files
+└── code/          # snapshot of the source (*.py, README.md, requirements.txt)
+```
+
+and inside `/content/lab2` the four folders become symlinks to the Drive ones, so
+`python train.py --model resnet18 --epochs 20 ...` writes straight to Drive.
+The script is idempotent, moves (never deletes) pre-existing local files, and supports
+`--drive-root`, `--no-data`, `--no-code`, `--copy-git`, `--dry-run`:
+
+```bash
+!python colab_setup.py --drive-root /content/drive/MyDrive/my-lab2 --copy-git --dry-run
+```
+
+### B. Point the flags at Drive (no symlinks)
+
+```bash
+!python train.py --model resnet18 --epochs 20 --batch-size 32 --lr 0.005 \
+    --data-dir       /content/drive/MyDrive/lab2/data \
+    --checkpoint-dir /content/drive/MyDrive/lab2/checkpoints \
+    --results-dir    /content/drive/MyDrive/lab2/results \
+    --runs-dir       /content/drive/MyDrive/lab2/runs
+```
+
+`benchmark.py` and `evaluate.py` accept the same four flags.
+
+### C. Run the project directly from Drive
+
+```bash
+%cd /content/drive/MyDrive/lab2
+```
+
+Simplest to reason about, but every small write (TensorBoard events, `__pycache__`,
+per-epoch CSV appends) goes through Drive's FUSE mount, which is slower and occasionally
+flaky. Option A gives you Drive persistence with local-disk speed.
+
+### What about the ImageNet-1K weight caches?
+
+`~/.cache/torch` (VGG16 is 528 MB) and `~/.cache/huggingface` are re-downloaded by each new
+session. That is usually faster than reading them back from Drive, so they are intentionally
+left local; if you prefer to cache them too:
+
+```bash
+export TORCH_HOME=/content/drive/MyDrive/lab2/cache/torch
+export HF_HOME=/content/drive/MyDrive/lab2/cache/huggingface
+```
+
 
 ## Reproducibility
 
